@@ -1,5 +1,5 @@
+import axios from "axios";
 import * as cheerio from "cheerio";
-
 console.log("myntra");
 
 async function fetchWithRetry(url, options, retries = 3) {
