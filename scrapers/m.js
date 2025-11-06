@@ -2,7 +2,7 @@ import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 
 puppeteer.use(StealthPlugin());
-
+console.log("m.js");
 export async function scrapeMyntra(url) {
   const browser = await puppeteer.launch({
     headless: true,
