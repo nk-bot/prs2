@@ -21,8 +21,30 @@ export default function Home() {
         method: "POST",
         body: formData,
       });
+
+      // Check if response is ok
+      if (!res.ok) {
+        const text = await res.text();
+        // Try to parse as JSON, but handle HTML error pages
+        try {
+          const errorData = JSON.parse(text);
+          setMessage("❌ Error: " + (errorData.error || errorData.message || `HTTP ${res.status}`));
+        } catch {
+          setMessage(`❌ Error: Server returned ${res.status} ${res.statusText}. ${text.substring(0, 100)}`);
+        }
+        return;
+      }
+
+      // Check content-type before parsing JSON
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await res.text();
+        setMessage("❌ Error: Server returned non-JSON response. " + text.substring(0, 100));
+        return;
+      }
+
       const data = await res.json();
-      setMessage(data.message || data.error);
+      setMessage(data.message || data.error || "✅ Upload successful");
     } catch (err) {
       setMessage("❌ Error uploading file: " + err.message);
     }

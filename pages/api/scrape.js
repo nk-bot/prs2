@@ -2,6 +2,8 @@ import Papa from "papaparse";
 import { supabase } from "../../supabaseClient.js";
 import formidable from "formidable";
 import fs from "fs";
+import path from "path";
+import os from "os";
 import { scrapeFirstCry } from "../../scrapers/firstcry.js";
 import { scrapeMothercare } from "../../scrapers/mothercare.js";
 import { scrapeMyntra } from "../../scrapers/m.js";
@@ -14,26 +16,62 @@ export const config = {
 };
 
 export default async function handler(req, res) {
+  // Ensure we always return JSON
+  const sendJson = (status, data) => {
+    res.status(status).setHeader("Content-Type", "application/json");
+    return res.json(data);
+  };
+
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+    return sendJson(405, { error: "Method not allowed" });
   }
 
-  const form = formidable({ multiples: false });
+  // Configure formidable for serverless environments
+  const uploadDir = path.join(os.tmpdir(), "formidable-uploads");
+  // Ensure upload directory exists
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+
+  const form = formidable({
+    multiples: false,
+    uploadDir: uploadDir,
+    keepExtensions: true,
+  });
 
   try {
     const [fields, files] = await form.parse(req);
 
     const file = files.file?.[0];
     if (!file) {
-      return res.status(400).json({ error: "No file uploaded" });
+      return sendJson(400, { error: "No file uploaded" });
     }
 
     // Read and parse the CSV
-    const csvText = fs.readFileSync(file.filepath, "utf-8");
+    let csvText;
+    try {
+      csvText = fs.readFileSync(file.filepath, "utf-8");
+    } catch (readError) {
+      console.error("Error reading file:", readError);
+      return sendJson(500, { error: "Failed to read uploaded file" });
+    }
+
+    // Clean up temp file
+    try {
+      fs.unlinkSync(file.filepath);
+    } catch (unlinkError) {
+      // Ignore cleanup errors
+      console.warn("Could not delete temp file:", unlinkError);
+    }
+
     const parsed = Papa.parse(csvText, { header: true });
     const urls = parsed.data.map((row) => row.url).filter(Boolean);
 
     console.log("Parsed URLs:", urls);
+
+    if (urls.length === 0) {
+      return sendJson(400, { error: "No valid URLs found in CSV file" });
+    }
 
     let successCount = 0;
 
@@ -73,7 +111,7 @@ export default async function handler(req, res) {
     }
 
     // Always respond after processing
-    res.status(200).json({
+    return sendJson(200, {
       message: `✅ Scraped ${successCount} products successfully.`,
       totalUrls: urls.length,
       successCount,
@@ -81,6 +119,9 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error("Error in /api/scrape:", err);
-    res.status(500).json({ error: err.message });
+    return sendJson(500, { 
+      error: err.message || "Internal server error",
+      details: process.env.NODE_ENV === "development" ? err.stack : undefined
+    });
   }
 }
