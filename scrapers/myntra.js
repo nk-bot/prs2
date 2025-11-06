@@ -13,12 +13,6 @@ export async function scrapeMyntra(url) {
       Connection: "close",
     };
 
-    const { data } = await fetchWithRetry(url, {
-      headers,
-      timeout: 15000,
-      maxRedirects: 3,
-      validateStatus: (s) => s < 400,
-    });
     const $ = cheerio.load(data);
 
     // ✅ Product Name
