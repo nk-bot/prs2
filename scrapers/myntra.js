@@ -1,26 +1,7 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
-async function fetchWithRetry(url, options, maxAttempts = 3) {
-  let lastError;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await axios.get(url, options);
-    } catch (error) {
-      lastError = error;
-      const isRetryable =
-        error.code === "ETIMEDOUT" ||
-        error.code === "ECONNRESET" ||
-        error.code === "EAI_AGAIN" ||
-        error.response?.status >= 500;
-      if (!isRetryable || attempt === maxAttempts) break;
-      const backoffMs = 500 * Math.pow(2, attempt - 1);
-      await new Promise((r) => setTimeout(r, backoffMs));
-    }
-  }
-  throw lastError;
-}
-
+console.log("myntra");
 export async function scrapeMyntra(url) {
   try {
     const headers = {
