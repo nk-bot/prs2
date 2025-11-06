@@ -1,6 +1,5 @@
 import Papa from "papaparse";
 import { supabase } from "../../supabaseClient.js";
-import formidable from "formidable";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -12,39 +11,68 @@ import { scrapeAmazon } from "../../scrapers/amazon.js";
 export const config = {
   api: {
     bodyParser: false, // ⛔ must disable built-in parser for file uploads
+    externalResolver: true, // Prevent Next.js from handling errors
   },
 };
 
+// Helper to ensure JSON response
+const sendJson = (res, status, data) => {
+  res.status(status).setHeader("Content-Type", "application/json");
+  return res.json(data);
+};
+
 export default async function handler(req, res) {
-  // Ensure we always return JSON
-  const sendJson = (status, data) => {
-    res.status(status).setHeader("Content-Type", "application/json");
-    return res.json(data);
-  };
-
-  if (req.method !== "POST") {
-    return sendJson(405, { error: "Method not allowed" });
-  }
-
-  // Configure formidable for serverless environments
-  const uploadDir = path.join(os.tmpdir(), "formidable-uploads");
-  // Ensure upload directory exists
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-
-  const form = formidable({
-    multiples: false,
-    uploadDir: uploadDir,
-    keepExtensions: true,
-  });
-
+  // Wrap everything in try-catch to prevent Next.js HTML error pages
   try {
-    const [fields, files] = await form.parse(req);
+    if (req.method !== "POST") {
+      return sendJson(res, 405, { error: "Method not allowed" });
+    }
+
+    // Dynamically import formidable to catch import errors
+    let formidable;
+    try {
+      formidable = (await import("formidable")).default;
+    } catch (importError) {
+      console.error("Error importing formidable:", importError);
+      return sendJson(res, 500, { 
+        error: "Failed to load file upload module",
+        details: importError.message 
+      });
+    }
+
+    // Configure formidable for serverless environments
+    const uploadDir = path.join(os.tmpdir(), "formidable-uploads");
+    // Ensure upload directory exists
+    try {
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+    } catch (dirError) {
+      console.error("Error creating upload directory:", dirError);
+      return sendJson(res, 500, { error: "Failed to initialize upload directory" });
+    }
+
+    const form = formidable({
+      multiples: false,
+      uploadDir: uploadDir,
+      keepExtensions: true,
+      maxFileSize: 10 * 1024 * 1024, // 10MB limit
+    });
+
+    let fields, files;
+    try {
+      [fields, files] = await form.parse(req);
+    } catch (parseError) {
+      console.error("Error parsing form:", parseError);
+      return sendJson(res, 400, { 
+        error: "Failed to parse file upload",
+        details: parseError.message 
+      });
+    }
 
     const file = files.file?.[0];
     if (!file) {
-      return sendJson(400, { error: "No file uploaded" });
+      return sendJson(res, 400, { error: "No file uploaded" });
     }
 
     // Read and parse the CSV
@@ -53,7 +81,7 @@ export default async function handler(req, res) {
       csvText = fs.readFileSync(file.filepath, "utf-8");
     } catch (readError) {
       console.error("Error reading file:", readError);
-      return sendJson(500, { error: "Failed to read uploaded file" });
+      return sendJson(res, 500, { error: "Failed to read uploaded file" });
     }
 
     // Clean up temp file
@@ -64,13 +92,20 @@ export default async function handler(req, res) {
       console.warn("Could not delete temp file:", unlinkError);
     }
 
-    const parsed = Papa.parse(csvText, { header: true });
+    let parsed;
+    try {
+      parsed = Papa.parse(csvText, { header: true });
+    } catch (parseError) {
+      console.error("Error parsing CSV:", parseError);
+      return sendJson(res, 400, { error: "Invalid CSV file format" });
+    }
+
     const urls = parsed.data.map((row) => row.url).filter(Boolean);
 
     console.log("Parsed URLs:", urls);
 
     if (urls.length === 0) {
-      return sendJson(400, { error: "No valid URLs found in CSV file" });
+      return sendJson(res, 400, { error: "No valid URLs found in CSV file" });
     }
 
     let successCount = 0;
@@ -111,15 +146,16 @@ export default async function handler(req, res) {
     }
 
     // Always respond after processing
-    return sendJson(200, {
+    return sendJson(res, 200, {
       message: `✅ Scraped ${successCount} products successfully.`,
       totalUrls: urls.length,
       successCount,
     });
 
   } catch (err) {
-    console.error("Error in /api/scrape:", err);
-    return sendJson(500, { 
+    // Catch any unexpected errors and return JSON
+    console.error("Unexpected error in /api/scrape:", err);
+    return sendJson(res, 500, { 
       error: err.message || "Internal server error",
       details: process.env.NODE_ENV === "development" ? err.stack : undefined
     });
