@@ -46,7 +46,11 @@ export async function scrapeMyntra(url) {
       const additional_images = imgs;
 
       const description = document.querySelector(".pdp-product-description-content")?.innerText?.trim();
-
+      console.log("name:", name);  
+      console.log("price", price);
+      console.log("description :", description);
+      console.log("image", main_image);
+	
       return { name, price, main_image, additional_images, description };
     });
 
