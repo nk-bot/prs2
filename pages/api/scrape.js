@@ -4,7 +4,7 @@ import formidable from "formidable";
 import fs from "fs";
 import { scrapeFirstCry } from "../../scrapers/firstcry.js";
 import { scrapeMothercare } from "../../scrapers/mothercare.js";
-import { scrapeMyntra } from "../../scrapers/m.js";
+import { scrapeMyntra } from "../../scrapers/myntra.js";
 import { scrapeAmazon } from "../../scrapers/amazon.js";
 
 export const config = {
