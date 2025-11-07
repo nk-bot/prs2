@@ -11,7 +11,7 @@ export async function scrapeFirstCry(url) {
   let browser;
 
   try {
-    // ✅ Detect if running locally or on Vercel
+    // ✅ Detect if running locally or in serverless (e.g., Vercel)
     const isLocal = os.platform() === "win32" || os.platform() === "darwin";
 
     const launchOptions = isLocal
@@ -51,6 +51,7 @@ export async function scrapeFirstCry(url) {
         document.querySelector("h1")?.innerText.trim() ||
         null;
 
+      // ✅ Price extraction
       let priceText =
         document.querySelector(".final-price")?.innerText.trim() ||
         document.querySelector(".prod-price")?.innerText.trim() ||
@@ -68,24 +69,92 @@ export async function scrapeFirstCry(url) {
         else price = parseFloat(numeric).toFixed(2);
       }
 
+      // ✅ Description
       const description =
         document.querySelector(".pp-dtl-desc")?.innerText.trim() ||
         document.querySelector(".product_desc")?.innerText.trim() ||
         document.querySelector("meta[name='description']")?.content ||
         null;
 
+      // ✅ Main image
       const main_image =
         document.querySelector(".pp-dtl-imgbox img")?.src ||
+        document.querySelector(".imgsliderwrap img")?.src ||
         document.querySelector("img[itemprop='image']")?.src ||
         document.querySelector("img")?.src ||
         null;
 
-      return { name, price, description, main_image };
+      // ✅ Additional images (from slider)
+      const imageElements = document.querySelectorAll(
+        ".swiper-slide img[src], .ImgSlider_Wrap img[src], .imgsliderwrap img[src]"
+      );
+      
+      const all_images = Array.from(imageElements)
+        .map((img) => img.getAttribute("src"))
+        .filter((src) => src && !src.includes("blank"))
+        .filter((v, i, a) => a.indexOf(v) === i); // Deduplicate
+
+      // Filter out the main image from the additional list for a clean result
+      const additional_images = all_images.filter(src => src !== main_image);
+
+      // ✅ Availability
+      const availabilityText =
+        document.querySelector(".oos-text, .out-of-stock, .soldout")?.innerText.trim() ||
+        document.querySelector(".add-to-cart, .addToCartBtn")?.innerText.trim() ||
+        "";
+      const availability = /out of stock|sold out/i.test(availabilityText)
+        ? "Out of Stock"
+        : "In Stock";
+
+      // ✅ Return policy
+      let return_policy = null;
+      
+      // 1. Target the policy span with the 'returnpopup()' click handler
+      const policySpan = document.querySelector('span.policy-1[onclick*="returnpopup"]');
+      
+      if (policySpan) {
+          // 2. Look for the policy text within the children (e.g., the label)
+          return_policy = policySpan.querySelector('.policytext')?.innerText.trim() || 
+                          policySpan.innerText.trim();
+      }
+      
+      // 3. Fallback to existing selectors in case the specific element isn't found
+      if (!return_policy) {
+        return_policy =
+          document.querySelector(".pp-return-policy, .policy-info")?.innerText.trim() ||
+          document.querySelector(".policyDetail .policy-txt")?.innerText.trim() ||
+          document.querySelector(".policyDetail")?.innerText.trim() ||
+          null;
+      }
+      
+      // 4. Clean up any remaining "Gift Wrap" text, though the new selector should prevent this
+      if (return_policy) {
+        return_policy = return_policy.replace(/Gift Wrap|Gift-wrap/gi, '').trim();
+        return_policy = return_policy.replace(/^[|,\s]+|[|,\s]+$/g, '').trim() || null;
+      }
+      // ✅ Variants (sizes)
+      const variants = Array.from(
+        document.querySelectorAll(".size-box, .sizeOpt, .sizeSel input[type='radio'], .sizeSel span")
+      )
+        .map((el) => el.innerText.trim() || el.value?.trim())
+        .filter(Boolean);
+
+      return {
+        site: "Firstcry",
+        url: window.location.href,
+        name,
+        price: price ? Number(price) : "N/A",
+        availability,
+        main_image,
+        additional_images,
+        description,
+        return_policy,
+        variants,
+      };
     });
 
     console.log("✅ Scraped data:", data);
-
-    return { ...data, url, site: "FirstCry" };
+    return data;
   } catch (err) {
     console.error("❌ Error scraping FirstCry:", err.message);
     throw err;
