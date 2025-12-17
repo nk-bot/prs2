@@ -1,44 +1,48 @@
 import axios from "axios";
-
-function extractProductId(url) {
-  const match = url.match(/\/(\d+)(\/|$)/);
-  return match ? match[1] : null;
-}
+import * as cheerio from "cheerio";
 
 export async function scrapeFirstCry(url) {
-  const productId = extractProductId(url);
-  if (!productId) throw new Error("Invalid FirstCry URL");
-
-  const apiUrl = `https://www.firstcry.com/api/pdp/product/${productId}`;
-
-  const { data } = await axios.get(apiUrl, {
+  const { data } = await axios.get(url, {
     headers: {
       "User-Agent": "Mozilla/5.0",
-      "Accept": "application/json"
+      Accept: "text/html",
     },
-    timeout: 15000
+    timeout: 15000,
   });
 
-  const product = data?.product;
-  if (!product) throw new Error("Product not found");
+  const $ = cheerio.load(data);
 
-  const name = product.productName;
-  const description = product.description?.replace(/<[^>]+>/g, "").trim();
+  // ✅ Name
+  const name = $("h1").first().text().trim();
+  if (!name) throw new Error("Product not found");
 
-  const price = product.finalPrice || product.mrp;
-  const availability = product.inStock ? "In Stock" : "Out of Stock";
+  // ✅ Price
+  const price =
+    $(".pdp-price .offer-price").text().trim() ||
+    $(".pdp-price").text().trim();
 
-  const images = product.imageGallery || [];
+  // ✅ Availability
+  const availability = $(".add-to-cart").length
+    ? "In Stock"
+    : "Out of Stock";
 
-  const main_image = images[0] || null;
-  const additional_images = images.slice(1);
+  // ✅ Main Image
+  const main_image =
+    $("#pdpMainImage img").attr("src") ||
+    $(".pdp-image img").first().attr("src");
 
-  const variants =
-    product.variants?.map(v => ({
-      size: v.size,
-      price: v.price,
-      available: v.inStock
-    })) || [];
+  // ✅ Additional Images
+  const additional_images = [];
+
+  $(".pdp-thumbnail img").each((_, el) => {
+    let img = $(el).attr("data-src") || $(el).attr("src");
+    if (img && !additional_images.includes(img)) {
+      additional_images.push(img);
+    }
+  });
+
+  // ✅ Description
+  const description = $("#description").text().trim();
 
   return {
     site: "FirstCry",
@@ -49,7 +53,5 @@ export async function scrapeFirstCry(url) {
     main_image,
     additional_images,
     description,
-    return_policy: "Refer FirstCry",
-    variants
   };
 }

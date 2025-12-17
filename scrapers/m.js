@@ -1,53 +1,63 @@
+// scrapers/myntra.js
 import axios from "axios";
 
-function extractProductId(url) {
-  const match = url.match(/\/(\d+)(\/buy)?$/);
-  return match ? match[1] : null;
-}
-
 export async function scrapeMyntra(url) {
-  const productId = extractProductId(url);
-  if (!productId) throw new Error("Invalid Myntra URL");
+  // ✅ Extract productId
+  const match = url.match(/\/(\d+)\//);
+  if (!match) {
+    throw new Error("Invalid Myntra URL");
+  }
 
+  const productId = match[1];
+
+  // ✅ Call Myntra API
   const apiUrl = `https://www.myntra.com/gateway/v2/product/${productId}`;
 
   const { data } = await axios.get(apiUrl, {
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-      "Accept": "application/json"
+      "accept-language": "en-IN"
     },
     timeout: 15000
   });
 
-  const style = data?.style;
-  if (!style) throw new Error("Product not found");
+  const product = data?.style;
 
-  const name = style.name;
+  if (!product) {
+    throw new Error("Product not found");
+  }
 
+  // ✅ Name
+  const name = `${product.brand?.name || ""} ${product.name || ""}`.trim();
+
+  // ✅ Price
   const price =
-    style.price?.discounted ||
-    style.price?.mrp ||
+    product.price?.discountedPrice ||
+    product.price?.mrp ||
     null;
 
-  const availability =
-    style.inventory?.available ? "In Stock" : "Out of Stock";
-
+  // ✅ Images (HIGH RES)
   const images =
-    style.media?.albums?.[0]?.images?.map(
-      img => img.imageURL
-    ) || [];
+    product.media?.albums?.[0]?.images || [];
 
-  const main_image = images[0] || null;
-  const additional_images = images.slice(1);
+  const additional_images = images.map(
+    img => `https://assets.myntassets.com/${img.imageURL}`
+  );
 
-  const description = style.description || "";
+  const main_image = additional_images[0] || null;
 
-  const variants =
-    style.sizes?.map(s => ({
-      size: s.label,
-      available: s.available
-    })) || [];
+  // ✅ Availability
+  const availability =
+    product.inventory?.available
+      ? "In Stock"
+      : "Out of Stock";
+
+  // ✅ Description
+  const description =
+    product.productDetails
+      ?.map(d => d.value)
+      .join(" ") || null;
 
   return {
     site: "Myntra",
@@ -59,6 +69,6 @@ export async function scrapeMyntra(url) {
     additional_images,
     description,
     return_policy: "Refer Myntra",
-    variants
+    variants: []
   };
 }
