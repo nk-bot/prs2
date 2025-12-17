@@ -1,104 +1,56 @@
 import axios from "axios";
-import * as cheerio from "cheerio";
+
+function extractHandle(url) {
+  const match = url.match(/\/product\/([^/?]+)/);
+  return match ? match[1] : null;
+}
 
 export async function scrapeMothercare(url) {
-  const headers = {
-    "User-Agent":
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-  };
+  const handle = extractHandle(url);
+  if (!handle) throw new Error("Invalid Mothercare URL");
 
-  const { data } = await axios.get(url, { headers });
-  const $ = cheerio.load(data);
+  const apiUrl = `https://mothercare.in/products/${handle}.json`;
 
-  // ✅ Name
-  const name =
-    $("h1.product-name").text().trim() ||
-    $("h1").text().trim() ||
-    null;
-
-  // ✅ Price
-  const priceText =
-    $("span.new-price").first().text().trim() ||
-    $("span.current-price").text().trim();
-  
-  let price = null;
-  if (priceText) {
-    price = parseFloat(priceText.replace(/[^\d]/g, ""));
-  }
-
-  // ✅ Main Image
-  const main_image =
-    $("meta[property='og:image']").attr("content") ||
-    $(".primary-image-container img").attr("src") ||
-    null;
-
-  // ✅ Additional Images
-  const pictureImages = new Set();
-
-$("picture source, picture img").each((_, el) => {
-  const srcset = $(el).attr("srcset");
-  if (srcset) {
-    srcset.split(",").forEach((src) => {
-      const cleanUrl = src.trim().split(" ")[0]; // remove resolution suffix (e.g., "400w")
-      if (cleanUrl.startsWith("http")) {
-        pictureImages.add(cleanUrl);
-      }
-    });
-  }
-
-  const src = $(el).attr("src");
-  if (src && src.startsWith("http")) {
-    pictureImages.add(src);
-  }
-});
-
-const additional_images = Array.from(pictureImages);
-
-  // ✅ Availability
-  let availability =
-    $(".pdp-stock-status").text().trim() ||
-    $(".in-stock").text().trim() ||
-    $(".availability-message").text().trim() ||
-    null;
-
-  if (!availability) {
-    availability = "In Stock";
-  } else if (availability.toLowerCase().includes("out")) {
-    availability = "Out of Stock";
-  }
-
-  // ✅ Description
-  const description =
-    $(".pdp-product-description").text().trim() ||
-    $("meta[name='description']").attr("content") ||
-    null;
-
-  // ✅ Return Policy
-  let return_policy = null;
-  $(".accordion-item").each((_, el) => {
-    if ($(el).text().includes("Returns")) {
-      return_policy = $(el).text().trim();
-    }
+  const { data } = await axios.get(apiUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+      "Accept": "application/json"
+    },
+    timeout: 15000
   });
-  if (!return_policy) return_policy = "Refer to Mothercare return policy page";
 
-  // ✅ Variants (Size/Color)
-  const variants = [];
-  $(".swatch-option").each((_, el) => {
-    const variant = $(el).text().trim();
-    if (variant) variants.push(variant);
-  });
+  const product = data.product;
+
+  const name = product.title;
+  const description = product.body_html?.replace(/<[^>]+>/g, "").trim();
+
+  const price = product.variants?.[0]?.price || null;
+  const availability = product.variants?.[0]?.available
+    ? "In Stock"
+    : "Out of Stock";
+
+  const images = product.images.map(img => img.src);
+
+  const main_image = images[0] || null;
+  const additional_images = images.slice(1);
+
+  const variants = product.variants.map(v => ({
+    id: v.id,
+    title: v.title,
+    price: v.price,
+    available: v.available
+  }));
 
   return {
     site: "Mothercare",
     url,
-    name: name ?? "N/A",
-    price: price ?? "N/A",
+    name,
+    price,
     availability,
-    main_image: main_image ?? "N/A",
+    main_image,
     additional_images,
-    description: description ?? "N/A",
-    return_policy,
-    variants: variants.length ? variants : [],
+    description,
+    return_policy: "Refer Mothercare",
+    variants
   };
 }
